@@ -1,18 +1,7 @@
-// ============================================================
-// AXI5 Credited Transport – Simple Implementation
-// Channels: AW, W, B, AR, R
-// Each channel has: VALID + PENDING + CRDT signals
-// ============================================================
+
 
 `timescale 1ns/1ps
 
-// ============================================================
-// MANAGER
-// - Sends AWVALID/ARVALID only when it has credits
-// - Gets credits back via AWCRDT/ARCRDT from Subordinate
-// - Returns credits to Subordinate via BCRDT/RCRDT
-// - Asserts PENDING one cycle before VALID
-// ============================================================
 module axi_manager #(
     parameter AW = 32,
     parameter DW = 32,
@@ -24,8 +13,8 @@ module axi_manager #(
     output reg  [AW-1:0] AWADDR,
     output reg           AWVALID,
     input  wire          AWREADY,
-    output reg           AWPENDING,   // hint: VALID coming next cycle
-    input  wire          AWCRDT,      // Subordinate returns AW credit
+    output reg           AWPENDING,   
+    input  wire          AWCRDT,      
 
     // W channel
     output reg  [DW-1:0] WDATA,
@@ -37,7 +26,7 @@ module axi_manager #(
     // B channel (response from Subordinate)
     input  wire          BVALID,
     output reg           BREADY,
-    output reg           BCRDT,       // Manager returns B credit to Subordinate
+    output reg           BCRDT,       
 
     // AR channel
     output reg  [AW-1:0] ARADDR,
@@ -50,9 +39,9 @@ module axi_manager #(
     input  wire [DW-1:0] RDATA,
     input  wire          RVALID,
     output reg           RREADY,
-    output reg           RCRDT        // Manager returns R credit to Subordinate
+    output reg           RCRDT        
 );
-    // Credit counters
+    
     reg [3:0] aw_crdt, w_crdt, ar_crdt;
 
     always @(posedge clk or negedge rstn) begin
@@ -67,13 +56,13 @@ module axi_manager #(
             RREADY   <= 1; RCRDT    <= 0;
         end else begin
 
-            // --- Replenish credits from Subordinate ---
+           
             if (AWCRDT) aw_crdt <= aw_crdt + 1;
             if (WCRDT)  w_crdt  <= w_crdt  + 1;
             if (ARCRDT) ar_crdt <= ar_crdt  + 1;
 
-            // --- AW: send if we have credit ---
-            AWPENDING <= (aw_crdt > 1);          // hint one cycle early
+            
+            AWPENDING <= (aw_crdt > 1);         
             if (!AWVALID && aw_crdt > 0) begin
                 AWVALID <= 1;
                 AWADDR  <= AWADDR + 4;
@@ -81,7 +70,7 @@ module axi_manager #(
             end else if (AWVALID && AWREADY)
                 AWVALID <= 0;
 
-            // --- W: send if we have credit ---
+           
             WPENDING <= (w_crdt > 1);
             if (!WVALID && w_crdt > 0) begin
                 WVALID <= 1;
@@ -90,10 +79,8 @@ module axi_manager #(
             end else if (WVALID && WREADY)
                 WVALID <= 0;
 
-            // --- B: accept response, return credit to Subordinate ---
-            BCRDT <= BVALID && BREADY;           // pulse credit on acceptance
+            BCRDT <= BVALID && BREADY;           
 
-            // --- AR: send if we have credit ---
             ARPENDING <= (ar_crdt > 1);
             if (!ARVALID && ar_crdt > 0) begin
                 ARVALID <= 1;
@@ -102,19 +89,12 @@ module axi_manager #(
             end else if (ARVALID && ARREADY)
                 ARVALID <= 0;
 
-            // --- R: accept data, return credit to Subordinate ---
+            
             RCRDT <= RVALID && RREADY;
         end
     end
 endmodule
 
-
-// ============================================================
-// SUBORDINATE
-// - Accepts requests, issues responses
-// - Returns CRDT to Manager after accepting AW/W/AR
-// - Uses BCRDT/RCRDT from Manager to know it can send B/R
-// ============================================================
 module axi_subordinate #(
     parameter AW = 32,
     parameter DW = 32,
@@ -126,8 +106,8 @@ module axi_subordinate #(
     input  wire [AW-1:0] AWADDR,
     input  wire          AWVALID,
     output reg           AWREADY,
-    input  wire          AWPENDING,   // lookahead hint from Manager
-    output reg           AWCRDT,      // return AW credit to Manager
+    input  wire          AWPENDING,  
+    output reg           AWCRDT,      
 
     // W channel
     input  wire [DW-1:0] WDATA,
@@ -140,24 +120,22 @@ module axi_subordinate #(
     output reg           BVALID,
     input  wire          BREADY,
     output reg           BPENDING,
-    input  wire          BCRDT,       // credit from Manager: may send B
-
+    input  wire          BCRDT,       
     // AR channel
     input  wire [AW-1:0] ARADDR,
     input  wire          ARVALID,
     output reg           ARREADY,
     input  wire          ARPENDING,
     output reg           ARCRDT,
-
     // R channel
     output reg  [DW-1:0] RDATA,
     output reg           RVALID,
     input  wire          RREADY,
     output reg           RPENDING,
-    input  wire          RCRDT        // credit from Manager: may send R
+    input  wire          RCRDT        
 );
-    reg [3:0] b_crdt, r_crdt;        // how many B/R responses we may send
-    reg       aw_q, w_q, ar_q;       // simple 1-entry queues
+    reg [3:0] b_crdt, r_crdt;        
+    reg       aw_q, w_q, ar_q;      
 
     always @(posedge clk or negedge rstn) begin
         if (!rstn) begin
@@ -170,19 +148,16 @@ module axi_subordinate #(
             RVALID   <= 0; RPENDING <= 0; RDATA <= 0;
         end else begin
 
-            // --- Replenish B/R credits from Manager ---
             if (BCRDT) b_crdt <= b_crdt + 1;
             if (RCRDT) r_crdt <= r_crdt + 1;
 
-            // --- Accept AW, return credit ---
             AWCRDT <= 0;
             if (AWVALID && AWREADY) begin
                 aw_q   <= 1;
-                AWCRDT <= 1;          // credit back immediately
+                AWCRDT <= 1;          
                 AWREADY<= 0;
             end
 
-            // --- Accept W, return credit ---
             WCRDT <= 0;
             if (WVALID && WREADY) begin
                 w_q   <= 1;
@@ -190,7 +165,6 @@ module axi_subordinate #(
                 WREADY<= 0;
             end
 
-            // --- Send B once AW+W received and we have B credit ---
             BPENDING <= aw_q && w_q && (b_crdt > 0);
             if (aw_q && w_q && b_crdt > 0 && !BVALID) begin
                 BVALID <= 1;
@@ -204,7 +178,7 @@ module axi_subordinate #(
                 WREADY  <= 1;
             end
 
-            // --- Accept AR, return credit ---
+            
             ARCRDT <= 0;
             if (ARVALID && ARREADY) begin
                 ar_q   <= 1;
@@ -212,11 +186,11 @@ module axi_subordinate #(
                 ARREADY<= 0;
             end
 
-            // --- Send R once AR received and we have R credit ---
+            
             RPENDING <= ar_q && (r_crdt > 0);
             if (ar_q && r_crdt > 0 && !RVALID) begin
                 RVALID <= 1;
-                RDATA  <= RDATA + 1;  // dummy read data
+                RDATA  <= RDATA + 1;  
                 r_crdt <= r_crdt - 1;
             end
             if (RVALID && RREADY) begin
